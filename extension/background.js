@@ -87,7 +87,7 @@ async function handleGeminiProxy(req, sendResponse) {
       } else {
         /* --- PATH B: Route through Django (Backend Key) --- */
         console.log("[DEBUG] Routing to Django Backend Proxy");
-        res = await fetch("http://127.0.0.1:8000/api/gemini-proxy/", {
+        res = await fetch("https://webmailextensionugac-260151192882.asia-south1.run.app/api/gemini-proxy/", {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
@@ -277,4 +277,5 @@ async function executeCalendarInsert(token, data, cardId, eventId = null) {
   } catch (err) {
     chrome.runtime.sendMessage({ type: "CALENDAR_RESULT", status: "error", message: "Network error.", cardId: cardId });
   }
+
 }
