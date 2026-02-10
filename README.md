@@ -1,1 +1,1 @@
-# Repo for the webmail extension
+# Repo for the webmail extension - Mail IITB
