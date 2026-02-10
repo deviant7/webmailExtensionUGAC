@@ -55,7 +55,7 @@ MIDDLEWARE = [
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True
-GEMINI_API_KEY = "AIzaSyCrKX2nJmEabxe94wuXUSeMSFs9hrcY-6E"
+GEMINI_API_KEY = "AIzaSyDBG3UjG-bmXjH7xBINHqzkci3HynYU4qQ"
 
 ROOT_URLCONF = "mail_backend.urls"
 
