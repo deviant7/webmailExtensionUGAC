@@ -55,7 +55,7 @@ MIDDLEWARE = [
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True
-GEMINI_API_KEY = "AIzaSyDBG3UjG-bmXjH7xBINHqzkci3HynYU4qQ"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 ROOT_URLCONF = "mail_backend.urls"
 
