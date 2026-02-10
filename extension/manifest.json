@@ -18,7 +18,9 @@
     "*://webmail.iitb.ac.in/*",
     "*://*.iitb.ac.in/*",
     "https://www.googleapis.com/*",
-    "http://127.0.0.1:8000/*"
+    "http://127.0.0.1:8000/*",
+    "https://webmailextensionugac-260151192882.asia-south1.run.app/api/daily-summary/",
+    "https://webmailextensionugac-260151192882.asia-south1.run.app/api/gemini-proxy/"
   ],
   "background": {
     "service_worker": "background.js"
@@ -46,4 +48,5 @@
       "run_at": "document_end"
     }
   ]
+
 }
