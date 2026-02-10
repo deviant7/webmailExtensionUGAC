@@ -533,7 +533,7 @@ document.getElementById('getDailySummaryBtn').addEventListener('click', async ()
 
     try {
         // 2. Fetch from Django, passing credentials in headers
-        const response = await fetch('http://127.0.0.1:8000/api/daily-summary/', {
+        const response = await fetch('https://webmailextensionugac-260151192882.asia-south1.run.app/api/daily-summary/', {
             method: 'GET',
             headers: {
                 'X-LDAP-User': storage.ldap_user,
@@ -1421,4 +1421,5 @@ chrome.runtime.onMessage.addListener((msg) => {
       }
     }
   }
+
 });
