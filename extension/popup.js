@@ -512,12 +512,12 @@ document.getElementById('saveCredsBtn').onclick = () => {
   });
 };
 
+'https://webmailextensionugac-260151192882.asia-south1.run.app/api/daily-summary/'
 document.getElementById('getDailySummaryBtn').addEventListener('click', async () => {
     const statusEl = document.getElementById('daily-summary-status');
     const resultEl = document.getElementById('daily-summary-result');
     const btn = document.getElementById('getDailySummaryBtn');
 
-    // 1. Get credentials from local storage
     const storage = await chrome.storage.local.get(['ldap_user', 'ldap_pass']);
     
     if (!storage.ldap_user || !storage.ldap_pass) {
@@ -532,8 +532,7 @@ document.getElementById('getDailySummaryBtn').addEventListener('click', async ()
     resultEl.style.display = "none";
 
     try {
-        // 2. Fetch from Django, passing credentials in headers
-        const response = await fetch('https://webmailextensionugac-260151192882.asia-south1.run.app/api/daily-summary/', {
+        const response = await fetch('http://127.0.0.1:8000/api/daily-summary/', {
             method: 'GET',
             headers: {
                 'X-LDAP-User': storage.ldap_user,
@@ -541,29 +540,79 @@ document.getElementById('getDailySummaryBtn').addEventListener('click', async ()
             }
         });
 
+        if (!response.ok) {
+            throw new Error("Server responded with " + response.status);
+        }
+
         const data = await response.json();
 
         if (data.status === "success") {
             statusEl.textContent = "Summary generated!";
             resultEl.style.display = "block";
-            
-            // 3. Render clean bullets
-            const lines = data.summary.split('\n').filter(l => l.trim() !== "");
-            resultEl.innerHTML = `<ul class="summary-list" style="margin: 0; padding-left: 1.2rem;">` + 
-                lines.map(line => `<li style="margin-bottom: 6px;">${cleanBullet(line)}</li>`).join('') + 
-                `</ul>`;
+
+            const unread = data.unread_summary || "No unread emails today.";
+            const read = data.read_summary || "No read emails today.";
+
+            resultEl.innerHTML = `
+                <div class="summary-section">
+                    <h3 style="margin-bottom: 6px;">🔴 Unread Emails</h3>
+                    ${renderStructuredSummary(unread)}
+                </div>
+
+                <div class="summary-section" style="margin-top: 20px;">
+                    <h3 style="margin-bottom: 6px;">📘 Read Emails</h3>
+                    ${renderStructuredSummary(read)}
+                </div>
+            `;
         } else {
             statusEl.textContent = "Error: " + (data.message || "Backend failed");
             statusEl.style.color = "crimson";
         }
+
     } catch (err) {
-        statusEl.textContent = "Connection failed. Ensure Django is running at :8000";
+        statusEl.textContent = "Frontend or network error. Check console.";
         statusEl.style.color = "crimson";
         console.error("Daily Summary Error:", err);
     } finally {
         btn.disabled = false;
     }
 });
+
+
+function renderStructuredSummary(text) {
+    const lines = text.split('\n').filter(l => l.trim() !== "");
+    let html = "";
+    let inList = false;
+
+    for (let rawLine of lines) {
+        let line = rawLine.trim();
+        line = line.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+        if (line.startsWith("-") || line.startsWith("*")) {
+
+            if (!inList) {
+                html += "<ul style='margin: 6px 0 10px 18px; padding: 0;'>";
+                inList = true;
+            }
+            line = line.replace(/^[-*]\s*/, "");
+
+            html += `<li style="margin-bottom: 4px;">${line}</li>`;
+        }
+        else {
+            if (inList) {
+                html += "</ul>";
+                inList = false;
+            }
+
+            html += `<div style="font-weight: 600; margin-top: 10px;">${line}</div>`;
+        }
+    }
+
+    if (inList) {
+        html += "</ul>";
+    }
+
+    return html;
+}
 
 function getVoiceStatusElement() {
   if (!activeTargetInput) return null;
@@ -1423,3 +1472,4 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 
 });
+
