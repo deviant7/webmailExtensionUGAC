@@ -75,174 +75,150 @@ def gemini_proxy(request):
         return JsonResponse({"error": str(e)}, status=500)
     
 def daily_summary_api(request):
-    """Connects to IMAP, fetches today's emails, and summarizes with Gemini 2.5 Flash."""
+    """Fetches ALL today's emails and generates separate summaries for unread and read emails."""
     print(f"[API] daily_summary_api called at {date.today()}")
-    
+
     try:
-        # 1. IMAP Setup - USERNAME WITHOUT DOMAIN
         USER = request.headers.get('X-LDAP-User')
         PASS = request.headers.get('X-LDAP-Pass')
-    
+
         if not USER or not PASS:
-            return JsonResponse({"status": "error", "message": "LDAP credentials missing from request headers"}, status=401)
-        print(f"[IMAP] Connecting as user: {USER}")
-        
-        # SSL context that works with IITB
+            return JsonResponse(
+                {"status": "error", "message": "LDAP credentials missing"},
+                status=401
+            )
+
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
         context.set_ciphers('DEFAULT')
-        
-        # Connect
+
         mail = imaplib.IMAP4_SSL(
             host='imap.iitb.ac.in',
             port=993,
             ssl_context=context
         )
-        
+
         mail.login(USER, PASS)
         mail.select('inbox')
-        
-        # Search for today's emails
+
         today = date.today().strftime("%d-%b-%Y")
-        status, messages = mail.search(None, f'(SINCE "{today}")')
-        
-        bodies = []
-        if status == 'OK':
+
+        def fetch_emails(query):
+            bodies = []
+            status, messages = mail.search(None, query)
+
+            if status != 'OK':
+                return bodies
+
             email_ids = messages[0].split()
-            print(f"[IMAP] Found {len(email_ids)} emails today")
-            
-            for i, email_id in enumerate(email_ids[:5]):  # Limit to 5
-                print(f"[IMAP] Fetching email {i+1}/{min(5, len(email_ids))}")
+            print(f"[IMAP] Query '{query}' → {len(email_ids)} emails")
+
+            for email_id in email_ids:
                 status, msg_data = mail.fetch(email_id, '(RFC822)')
-                if status == 'OK':
-                    msg = email.message_from_bytes(msg_data[0][1])
-                    
-                    # Extract plain text body
-                    body = None
-                    if msg.is_multipart():
-                        for part in msg.walk():
-                            if part.get_content_type() == "text/plain":
-                                body = part.get_payload(decode=True)
-                                if body:
-                                    break
-                    else:
-                        body = msg.get_payload(decode=True)
-                    
-                    if body:
-                        try:
-                            decoded_body = body.decode('utf-8', errors='ignore')
-                            # Clean up the body
-                            cleaned_body = decoded_body.replace('\r', '').replace('\n', ' ').strip()
-                            bodies.append(cleaned_body[:3000])  # Limit to 3000 chars
-                        except:
-                            pass
-        
+                if status != 'OK':
+                    continue
+
+                msg = email.message_from_bytes(msg_data[0][1])
+
+                body = None
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        if part.get_content_type() == "text/plain":
+                            body = part.get_payload(decode=True)
+                            if body:
+                                break
+                else:
+                    body = msg.get_payload(decode=True)
+
+                if body:
+                    try:
+                        decoded_body = body.decode('utf-8', errors='ignore')
+                        cleaned_body = decoded_body.replace('\r', '').replace('\n', ' ').strip()
+                        bodies.append(cleaned_body[:3000])
+                    except:
+                        pass
+
+            return bodies
+
+        unread_bodies = fetch_emails(f'(SINCE "{today}" UNSEEN)')
+        read_bodies = fetch_emails(f'(SINCE "{today}" SEEN)')
+
         mail.logout()
-        
-        print(f"[IMAP] Extracted {len(bodies)} email bodies")
-        
-        if not bodies:
-            return JsonResponse({
-                "status": "success", 
-                "summary": "No emails found for today."
-            })
-        
-        # 2. Gemini Summarization - USING gemini-2.5-flash
-        if not GEMINI_AVAILABLE:
-            print("[Gemini] Gemini not available, using fallback")
-            # Fallback mock response
+
+        if not unread_bodies and not read_bodies:
             return JsonResponse({
                 "status": "success",
-                "summary": f"DEBUG: Found {len(bodies)} emails. Gemini not configured.\n\nFirst email preview:\n{bodies[0][:500]}..."
+                "unread_summary": "No unread emails today.",
+                "read_summary": "No read emails today."
             })
-        
-        combined_text = "\n\n---\n\n".join(bodies)
-        
-        # Truncate if too long (Gemini has token limits)
-        if len(combined_text) > 15000:
-            combined_text = combined_text[:15000] + "\n\n[Content truncated due to length]"
-        
-        prompt = f"""You are summarizing emails for an IIT Bombay student. 
-        Create a concise daily brief from these emails (max 250 words).
-        
-        Focus on:
-        - Important announcements
-        - Deadlines and due dates  
-        - Meetings or events
-        - Action items requiring attention
-        - Academic or administrative updates
-        
-        Emails from today:
-        {combined_text}
-        
-        Provide the summary in clear, bullet-point format if appropriate."""
-        
-        try:
-            # Try old API first (simpler)
+
+
+        def summarize_emails(email_list, category_name):
+            if not email_list:
+                return f"No {category_name.lower()} emails today."
+
+            combined_text = "\n\n---\n\n".join(email_list)
+
+            # 🔥 Safety token cap (not mail cap)
+            if len(combined_text) > 20000:
+                combined_text = combined_text[:20000] + "\n\n[Truncated]"
+
+            prompt = prompt = f"""
+You are generating a structured daily email brief for an IIT Bombay student.
+
+Organize the summary clearly using this format:
+
+SECTION TITLE:
+Use exactly this header:
+{category_name} EMAILS
+
+For each important topic or event:
+- Write a short descriptive heading in bold (Markdown style: **Heading**)
+- Under that heading, add 2–5 bullet points explaining:
+    • What it is
+    • Key details
+    • Deadlines (if any)
+    • Required action (if any)
+
+Rules:
+- Do NOT make everything one long bullet list.
+- Group related emails under one bold heading.
+- Be concise but clear.
+- Maximum 300 words total.
+
+Emails:
+{combined_text}
+"""
+
+
+            if not GEMINI_AVAILABLE:
+                return f"DEBUG: {len(email_list)} {category_name} emails found."
+
             if not GEMINI_NEW_API:
-                print("[Gemini] Using old API (google.generativeai)")
-                # Old API
                 genai.configure(api_key=settings.GEMINI_API_KEY)
-                model = genai.GenerativeModel('gemini-2.5-flash')  # Your chosen model
+                model = genai.GenerativeModel('gemini-2.5-flash')
                 response = model.generate_content(prompt)
-                summary = response.text
+                return response.text
             else:
-                print("[Gemini] Using new API (google.genai)")
-                # New API
                 client = genai_new.Client(api_key=settings.GEMINI_API_KEY)
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=prompt
                 )
-                
-                # Extract text
-                if hasattr(response, 'text'):
-                    summary = response.text
-                elif hasattr(response, 'candidates') and response.candidates:
-                    summary = ""
-                    for candidate in response.candidates:
-                        if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                            for part in candidate.content.parts:
-                                if hasattr(part, 'text'):
-                                    summary += part.text + "\n"
-                    summary = summary.strip()
-                else:
-                    summary = str(response)
-            
-            print(f"[Gemini] Summary generated: {len(summary)} chars")
-            
-            return JsonResponse({
-                "status": "success", 
-                "summary": summary
-            })
-            
-        except Exception as gemini_error:
-            print(f"[Gemini] Error: {gemini_error}")
-            # Fallback to simple concatenation
-            simple_summary = f"Daily Email Summary ({len(bodies)} emails)\n\n"
-            for i, body in enumerate(bodies[:3]):
-                simple_summary += f"Email {i+1}: {body[:200]}...\n\n"
-            
-            return JsonResponse({
-                "status": "success",
-                "summary": simple_summary
-            })
-        
-    except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        print(f"[ERROR] Full error: {error_trace}")
-        
-        # Provide a more user-friendly error
-        error_msg = str(e)
-        if "authentication failed" in error_msg.lower():
-            error_msg = "IMAP authentication failed. Check username/password."
-        elif "ssl" in error_msg.lower():
-            error_msg = "SSL connection error. Server may be unreachable."
-        
+                return response.text if hasattr(response, 'text') else str(response)
+
+        unread_summary = summarize_emails(unread_bodies, "UNREAD")
+        read_summary = summarize_emails(read_bodies, "READ")
+
         return JsonResponse({
-            "status": "error", 
-            "message": f"Server error: {error_msg}"
+            "status": "success",
+            "unread_summary": unread_summary,
+            "read_summary": read_summary
+        })
+
+    except Exception as e:
+        return JsonResponse({
+            "status": "error",
+            "message": str(e)
         }, status=500)
-    
