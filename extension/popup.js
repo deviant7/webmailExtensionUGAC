@@ -512,7 +512,6 @@ document.getElementById('saveCredsBtn').onclick = () => {
   });
 };
 
-'https://webmailextensionugac-260151192882.asia-south1.run.app/api/daily-summary/'
 document.getElementById('getDailySummaryBtn').addEventListener('click', async () => {
     const statusEl = document.getElementById('daily-summary-status');
     const resultEl = document.getElementById('daily-summary-result');
@@ -532,7 +531,7 @@ document.getElementById('getDailySummaryBtn').addEventListener('click', async ()
     resultEl.style.display = "none";
 
     try {
-        const response = await fetch('http://127.0.0.1:8000/api/daily-summary/', {
+        const response = await fetch('https://webmailextensionugac-260151192882.asia-south1.run.app/api/daily-summary/', {
             method: 'GET',
             headers: {
                 'X-LDAP-User': storage.ldap_user,
@@ -1472,4 +1471,5 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 
 });
+
 
