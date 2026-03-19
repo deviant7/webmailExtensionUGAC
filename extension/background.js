@@ -145,7 +145,7 @@ async function handleCalendarFlow(eventData, cardId, eventId = null, forceSelect
     return;
   }
 
-  const clientId = "451389975470-e42fi26fo0gbde0d9ppafei19ctk63nb.apps.googleusercontent.com";
+  const clientId = "204923188074-lev69m2gnnock5k9btjvqmle7pono50r.apps.googleusercontent.com";
   const redirectUri = `https://${chrome.runtime.id}.chromiumapp.org/`;
   const scopes = encodeURIComponent("https://www.googleapis.com/auth/calendar.events");
 
