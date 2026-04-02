@@ -2,10 +2,25 @@
 // ⚠️ ALL PROMPTS AND FUNCTIONALITIES ARE 100% RESTORED - MULTI-EVENT & ENHANCED REPLY ENABLED
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
+const BACKEND_BASE = "https://webmailextensionugac-260151192882.asia-south1.run.app";
+const SUPPORTED_CUSTOM_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-pro",
+  "gemini-3-flash-preview",
+  "gemini-3.1-flash-lite-preview",
+  "gemini-3.1-pro-preview",
+];
 
 function geminiEndpointFor(model) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
+
+async function buildBackendUrl(path) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${BACKEND_BASE}${normalizedPath}`;
+}
+
 function sendToGemini(prompt, callback) {
 
   chrome.storage.local.get(['selectedModel'], (res) => {
@@ -39,6 +54,23 @@ function escapeHtml(s = "") {
 
 function cleanBullet(text = "") {
   return text.replace(/^\*+\s*/, "").replace(/\*+$/g, "").replace(/\*\**/g, "").trim();
+}
+
+function getTodayIsoDate() {
+  const now = new Date();
+  const local = new Date(now.getTime() - (now.getTimezoneOffset() * 60000));
+  return local.toISOString().slice(0, 10);
+}
+
+function formatSummaryDate(dateString) {
+  if (!dateString) return "the selected date";
+  const parsed = new Date(`${dateString}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return dateString;
+  return parsed.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  });
 }
 
 function showMessage(msg, section = "summary", err = false) {
@@ -516,6 +548,8 @@ document.getElementById('getDailySummaryBtn').addEventListener('click', async ()
     const statusEl = document.getElementById('daily-summary-status');
     const resultEl = document.getElementById('daily-summary-result');
     const btn = document.getElementById('getDailySummaryBtn');
+    const summaryDateInput = document.getElementById('dailySummaryDate');
+    const selectedDate = summaryDateInput?.value || getTodayIsoDate();
 
     const storage = await chrome.storage.local.get(['ldap_user', 'ldap_pass']);
     
@@ -525,13 +559,15 @@ document.getElementById('getDailySummaryBtn').addEventListener('click', async ()
         return;
     }
 
-    statusEl.textContent = "Authenticating with IITB Webmail...";
+    statusEl.textContent = `Authenticating with IITB Webmail for ${formatSummaryDate(selectedDate)}...`;
     statusEl.style.color = "inherit";
     btn.disabled = true;
     resultEl.style.display = "none";
 
     try {
-        const response = await fetch('https://webmailextensionugac-260151192882.asia-south1.run.app/api/daily-summary/', {
+        const dailySummaryBaseUrl = await buildBackendUrl('/api/daily-summary/');
+        const dailySummaryUrl = `${dailySummaryBaseUrl}?date=${encodeURIComponent(selectedDate)}`;
+        const response = await fetch(dailySummaryUrl, {
             method: 'GET',
             headers: {
                 'X-LDAP-User': storage.ldap_user,
@@ -546,10 +582,14 @@ document.getElementById('getDailySummaryBtn').addEventListener('click', async ()
         const data = await response.json();
 
         if (data.status === "success") {
-            statusEl.textContent = "Summary generated!";
+            const processedTotal = data.stats?.processed_total ?? data.stats?.total ?? 0;
+            const mailboxTotal = data.stats?.mailbox_total ?? processedTotal;
+            statusEl.textContent = mailboxTotal > processedTotal
+              ? `Summary generated for ${formatSummaryDate(data.generated_for || selectedDate)}: ${processedTotal} of ${mailboxTotal} inbox emails.`
+              : `Summary generated for ${formatSummaryDate(data.generated_for || selectedDate)}: ${processedTotal} inbox emails.`;
             resultEl.style.display = "block";
 
-            const unread = data.unread_summary || "No unread emails today.";
+            /*
             const read = data.read_summary || "No read emails today.";
 
             resultEl.innerHTML = `
@@ -562,20 +602,162 @@ document.getElementById('getDailySummaryBtn').addEventListener('click', async ()
                     <h3 style="margin-bottom: 6px;">📘 Read Emails</h3>
                     ${renderStructuredSummary(read)}
                 </div>
-            `;
+            */
+            resultEl.innerHTML = renderDailySummaryDashboard(data);
         } else {
             statusEl.textContent = "Error: " + (data.message || "Backend failed");
             statusEl.style.color = "crimson";
         }
 
     } catch (err) {
-        statusEl.textContent = "Frontend or network error. Check console.";
+        statusEl.textContent = `Frontend or network error while loading ${formatSummaryDate(selectedDate)}. Check console.`;
         statusEl.style.color = "crimson";
         console.error("Daily Summary Error:", err);
     } finally {
         btn.disabled = false;
     }
 });
+
+
+function renderDailySummaryDashboard(data) {
+    const hasRichData = !!(
+        data.overview ||
+        data.stats ||
+        (Array.isArray(data.action_items) && data.action_items.length) ||
+        (Array.isArray(data.recent_emails) && data.recent_emails.length)
+    );
+
+    if (!hasRichData) {
+        const unread = data.unread_summary || "No unread emails today.";
+        const read = data.read_summary || "No read emails today.";
+
+        return `
+            <div class="summary-section">
+                <h3 style="margin-bottom: 6px;">Unread Emails</h3>
+                ${renderStructuredSummary(unread)}
+            </div>
+
+            <div class="summary-section" style="margin-top: 20px;">
+                <h3 style="margin-bottom: 6px;">Read Emails</h3>
+                ${renderStructuredSummary(read)}
+            </div>
+        `;
+    }
+
+    const unread = data.unread_summary || "No unread emails today.";
+    const read = data.read_summary || "No read emails today.";
+
+    return `
+        <div class="daily-summary-dashboard">
+            ${data.overview ? `<div class="daily-overview">${escapeHtml(data.overview)}</div>` : ""}
+            ${renderDailyStats(data.stats)}
+            ${renderDailyActionItems(data.action_items || [])}
+            <div class="daily-summary-split">
+                <div class="daily-summary-panel unread-summary-panel">
+                    <h3 class="daily-section-title daily-summary-heading unread-heading">🔴 Unread Emails</h3>
+                    ${renderStructuredSummary(unread)}
+                </div>
+                <div class="daily-summary-panel read-summary-panel">
+                    <h3 class="daily-section-title daily-summary-heading read-heading">🟢 Read Emails</h3>
+                    ${renderStructuredSummary(read)}
+                </div>
+            </div>
+            ${renderDailyEmailSection("Today's Inbox Snapshot", data.recent_emails || [], "No emails arrived today.")}
+        </div>
+    `;
+}
+
+
+function renderDailyStats(stats = {}) {
+    const cards = [
+        { label: "Total Today", value: stats.total ?? 0 },
+        { label: "Unread", value: stats.unread ?? 0 },
+        { label: "Read", value: stats.read ?? 0 },
+        { label: "External", value: stats.external_total ?? 0 },
+    ];
+
+    const metaLine = (stats.mailbox_total && stats.processed_total && stats.mailbox_total !== stats.processed_total)
+      ? `<p class="daily-meta-line">Processed ${stats.processed_total} of ${stats.mailbox_total} inbox emails that matched today's search.</p>`
+      : "";
+
+    return `
+        <div class="daily-stats-grid">
+            ${cards.map(card => `
+                <div class="daily-stat-card">
+                    <div class="daily-stat-value">${escapeHtml(String(card.value))}</div>
+                    <div class="daily-stat-label">${escapeHtml(card.label)}</div>
+                </div>
+            `).join("")}
+        </div>
+        ${metaLine}
+    `;
+}
+
+
+function renderDailyActionItems(actionItems = []) {
+    const content = actionItems.length
+      ? actionItems.map(item => {
+            const priority = (item.priority || "medium").toLowerCase();
+            const status = (item.status || "unread").toLowerCase();
+            const source = (item.source || "internal").toLowerCase();
+
+            return `
+                <div class="daily-action-card">
+                    <div class="daily-action-header">
+                        <h3>${escapeHtml(item.title || "Action item")}</h3>
+                        <div class="daily-pill-row">
+                            <span class="daily-pill priority-${escapeHtml(priority)}">${escapeHtml(priority)}</span>
+                            <span class="daily-pill source-${escapeHtml(source)}">${escapeHtml(source)}</span>
+                            <span class="daily-pill status-${escapeHtml(status)}">${escapeHtml(status)}</span>
+                        </div>
+                    </div>
+                    <p>${escapeHtml(item.detail || "No extra detail available.")}</p>
+                </div>
+            `;
+        }).join("")
+      : `<div class="daily-empty-state">No concrete action items were detected from today's inbox.</div>`;
+
+    return `
+        <div class="daily-section">
+            <h3 class="daily-section-title">Action Items</h3>
+            <div class="daily-action-list">${content}</div>
+        </div>
+    `;
+}
+
+
+function renderDailyEmailSection(title, emails = [], emptyMessage) {
+    const content = emails.length
+      ? emails.map(email => {
+            const source = (email.source || "internal").toLowerCase();
+            const status = (email.status || "read").toLowerCase();
+
+            return `
+                <div class="daily-email-card">
+                    <div class="daily-email-topline">
+                        <strong>${escapeHtml(email.subject || "(No subject)")}</strong>
+                        <span class="daily-email-time">${escapeHtml(email.received_label || "Today")}</span>
+                    </div>
+                    <div class="daily-email-meta">
+                        <span>${escapeHtml(email.sender || "Unknown sender")}</span>
+                        <div class="daily-pill-row">
+                            <span class="daily-pill source-${escapeHtml(source)}">${escapeHtml(source)}</span>
+                            <span class="daily-pill status-${escapeHtml(status)}">${escapeHtml(status)}</span>
+                        </div>
+                    </div>
+                    <p>${escapeHtml(email.snippet || "No preview available.")}</p>
+                </div>
+            `;
+        }).join("")
+      : `<div class="daily-empty-state">${escapeHtml(emptyMessage)}</div>`;
+
+    return `
+        <div class="daily-section">
+            <h3 class="daily-section-title">${escapeHtml(title)}</h3>
+            <div class="daily-email-list">${content}</div>
+        </div>
+    `;
+}
 
 
 function renderStructuredSummary(text) {
@@ -589,7 +771,7 @@ function renderStructuredSummary(text) {
         if (line.startsWith("-") || line.startsWith("*")) {
 
             if (!inList) {
-                html += "<ul style='margin: 6px 0 10px 18px; padding: 0;'>";
+                html += "<ul class='daily-structured-list' style='margin: 6px 0 10px 18px; padding: 0;'>";
                 inList = true;
             }
             line = line.replace(/^[-*]\s*/, "");
@@ -602,7 +784,7 @@ function renderStructuredSummary(text) {
                 inList = false;
             }
 
-            html += `<div style="font-weight: 600; margin-top: 10px;">${line}</div>`;
+            html += `<div class="daily-structured-heading" style="font-weight: 600; margin-top: 10px;">${line}</div>`;
         }
     }
 
@@ -1222,6 +1404,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // ---------------------------------------------------------
   updateAuthUI();
   const urlParams = new URLSearchParams(window.location.search);
+  const dailySummaryDateInput = document.getElementById("dailySummaryDate");
+  if (dailySummaryDateInput && !dailySummaryDateInput.value) {
+    dailySummaryDateInput.value = getTodayIsoDate();
+  }
   if (urlParams.get('mic_setup') === 'true') {
       document.body.innerHTML = `
         <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:'Inter',sans-serif; text-align:center; padding:20px;">
@@ -1269,7 +1455,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       if (modelSelect) {
-        modelSelect.value = result.selectedModel || DEFAULT_MODEL;
+        const savedModel = SUPPORTED_CUSTOM_MODELS.includes(result.selectedModel) ? result.selectedModel : DEFAULT_MODEL;
+        modelSelect.value = savedModel;
         if (!hasKey) {
           modelSelect.value = DEFAULT_MODEL;
           modelSelect.disabled = true;
@@ -1340,6 +1527,46 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
 
+  if (saveSettingsBtn) {
+    saveSettingsBtn.onclick = async () => {
+      const key = apiKeyInput.value.trim();
+
+      if (!key) {
+        chrome.storage.local.remove(['customApiKey'], async () => {
+          if (modelSelect) {
+            modelSelect.value = DEFAULT_MODEL;
+            modelSelect.disabled = true;
+            await chrome.storage.local.set({ selectedModel: DEFAULT_MODEL });
+          }
+          showMessage("API key cleared.", "setup");
+        });
+        return;
+      }
+
+      showMessage("Verifying key...", "setup");
+
+      try {
+        const testUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`;
+        const response = await fetch(testUrl);
+
+        if (response.ok) {
+          chrome.storage.local.set({ customApiKey: key }, () => {
+            if (modelSelect) {
+              modelSelect.disabled = false;
+            }
+            showMessage("Saved successfully. Model selection enabled.", "setup");
+          });
+        } else {
+          const errorData = await response.json();
+          const errorMsg = errorData.error?.message || "Invalid Key";
+          showMessage(`Error: ${errorMsg}`, "setup", true);
+        }
+      } catch (err) {
+        showMessage("Connection failed", "setup", true);
+      }
+    };
+  }
+
   document.querySelectorAll(".accordion-item").forEach(section => {
     section.classList.remove("active");
   });
@@ -1399,6 +1626,11 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === "GOOGLE_ACCOUNT_SWITCH_RESULT") {
+    showMessage(msg.message || (msg.status === "success" ? "Google account switched successfully." : "Google account switch failed."), "calendar", msg.status !== "success");
+    return;
+  }
+
   if (msg.type === "CALENDAR_RESULT") {
     showMessage("", "calendar");
     const card = document.getElementById(msg.cardId);

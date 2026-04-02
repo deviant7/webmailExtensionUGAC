@@ -1113,3 +1113,213 @@ body {
 .status-active #auth-status-text {
     color: #064e3b !important;
 }
+
+/* --- Daily Summary Dashboard --- */
+.daily-summary-dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.daily-overview {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #f8fafc;
+    border: 1px solid #94a3b8;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #1f2937;
+}
+
+.daily-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.daily-stat-card {
+    border: 1px solid #94a3b8;
+    border-radius: 12px;
+    padding: 12px;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.daily-stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: #020617;
+}
+
+.daily-stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin-top: 4px;
+}
+
+.daily-meta-line {
+    margin: -4px 0 0;
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.daily-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.daily-section-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: #111827;
+}
+
+.daily-action-list,
+.daily-email-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.daily-action-card,
+.daily-email-card,
+.daily-summary-panel {
+    border: 1px solid #94a3b8;
+    border-radius: 12px;
+    padding: 12px;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.daily-action-header,
+.daily-email-topline,
+.daily-email-meta {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.daily-action-header h3,
+.daily-email-topline strong {
+    margin: 0;
+    font-size: 13px;
+    color: #111827;
+}
+
+.daily-action-card p,
+.daily-email-card p {
+    margin: 8px 0 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #374151;
+}
+
+.daily-email-meta {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #4b5563;
+}
+
+.daily-email-time {
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.daily-pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+.daily-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.priority-high {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.priority-medium {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.priority-low {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.source-internal {
+    background: #e0f2fe;
+    color: #075985;
+}
+
+.source-external {
+    background: #ede9fe;
+    color: #5b21b6;
+}
+
+.status-unread {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.status-read {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.daily-empty-state {
+    border: 1px dashed #94a3b8;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+}
+
+.daily-summary-split {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.daily-summary-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.unread-summary-panel {
+    border-left: 4px solid #dc2626;
+}
+
+.read-summary-panel {
+    border-left: 4px solid #16a34a;
+}
+
+.daily-structured-heading {
+    color: #2563eb;
+    font-weight: 700;
+}
+
+.daily-structured-list li {
+    color: #334155;
+    line-height: 1.5;
+}

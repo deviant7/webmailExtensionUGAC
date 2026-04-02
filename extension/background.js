@@ -4,6 +4,12 @@
 // ⚠️ TEMPORARY: hard-coded API keys (internal/demo use only)
 
 const GEMINI_API_KEY = "apikey";
+const BACKEND_BASE = "https://webmailextensionugac-260151192882.asia-south1.run.app";
+
+async function buildBackendUrl(path) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${BACKEND_BASE}${normalizedPath}`;
+}
 
 /* -------------------- Auth Locking State -------------------- */
 let isAuthPending = false; // The Gatekeeper lock
@@ -87,13 +93,17 @@ async function handleGeminiProxy(req, sendResponse) {
       } else {
         /* --- PATH B: Route through Django (Backend Key) --- */
         console.log("[DEBUG] Routing to Django Backend Proxy");
-        res = await fetch("https://webmailextensionugac-260151192882.asia-south1.run.app/api/gemini-proxy/", {
+        const backendProxyUrl = await buildBackendUrl('/api/gemini-proxy/');
+        res = await fetch(backendProxyUrl, {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
             "Accept": "application/json"
           },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({
+            model: req.model || data.selectedModel || 'gemini-2.5-flash',
+            payload
+          })
         });
       }
 
@@ -164,12 +174,20 @@ async function handleCalendarFlow(eventData, cardId, eventId = null, forceSelect
       isAuthPending = false; // Release the gate
 
       if (chrome.runtime.lastError || !redirectUrl) {
-        chrome.runtime.sendMessage({ 
-          type: "CALENDAR_RESULT", 
-          status: "error", 
-          message: "Google login failed.",
-          cardId: cardId 
-        });
+        if (forceSelect && !(eventData && eventData.title)) {
+          chrome.runtime.sendMessage({
+            type: "GOOGLE_ACCOUNT_SWITCH_RESULT",
+            status: "error",
+            message: "Google account switch failed."
+          });
+        } else {
+          chrome.runtime.sendMessage({ 
+            type: "CALENDAR_RESULT", 
+            status: "error", 
+            message: "Google login failed.",
+            cardId: cardId 
+          });
+        }
         return;
       }
 
@@ -188,6 +206,12 @@ async function handleCalendarFlow(eventData, cardId, eventId = null, forceSelect
         // Only attempt insert if we have event data (not a pure account switch)
         if (eventData && eventData.title) {
           executeCalendarInsert(newToken, eventData, cardId, eventId);
+        } else if (forceSelect) {
+          chrome.runtime.sendMessage({
+            type: "GOOGLE_ACCOUNT_SWITCH_RESULT",
+            status: "success",
+            message: "Google account switched successfully."
+          });
         }
       }
     }
