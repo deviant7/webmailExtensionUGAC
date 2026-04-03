@@ -867,6 +867,11 @@ async function getOpenedMail(cb) {
     return;
   }
 
+  if (!tab.url || !tab.url.includes("webmail.iitb.ac.in")) {
+    cb({ ok: false, error: "mail_only_on_webmail" });
+    return;
+  }
+
   chrome.tabs.sendMessage(tab.id, { type: "GET_OPENED_MAIL" }, (response) => {
     if (!chrome.runtime.lastError) {
       cb(response);
@@ -895,7 +900,7 @@ function actionSummarize() {
 
   getOpenedMail(resp => {
     if (!resp || !resp.ok) {
-      showMessage("No mail detected", "summary", true);
+      showMessage(resp?.error === "mail_only_on_webmail" ? "Open IITB webmail to use this feature" : "No mail detected", "summary", true);
       return;
     }
 
@@ -1035,7 +1040,7 @@ function actionCalendarOnly() {
 
   getOpenedMail(resp => {
     if (!resp || !resp.ok) {
-      showMessage("No mail detected", "calendar", true);
+      showMessage(resp?.error === "mail_only_on_webmail" ? "Open IITB webmail to use this feature" : "No mail detected", "calendar", true);
       return;
     }
 
@@ -1142,7 +1147,7 @@ function actionReply() {
 
   getOpenedMail(resp => {
     if (!resp || !resp.ok) {
-      showMessage("No mail detected", "reply", true);
+      showMessage(resp?.error === "mail_only_on_webmail" ? "Open IITB webmail to use this feature" : "No mail detected", "reply", true);
       return;
     }
 

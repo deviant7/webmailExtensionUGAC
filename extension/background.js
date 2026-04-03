@@ -50,7 +50,7 @@ function markTabState(tabId, updates) {
 
 async function syncTabSidePanel(tabId, url = "") {
   const state = getSidePanelState(tabId);
-  await applySidePanelOptions(tabId, isWebmailUrl(url) && state.opened === true);
+  await applySidePanelOptions(tabId, state.opened === true);
 }
 
 disableDefaultSidePanel().catch((error) => console.error(error));
@@ -116,7 +116,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
 });
 
 chrome.action.onClicked.addListener((tab) => {
-  if (!tab?.id || !isWebmailUrl(tab.url)) {
+  if (!tab?.id) {
     return;
   }
 
