@@ -396,7 +396,7 @@ async function executeCalendarInsert(token, data, cardId, eventId = null) {
 
       chrome.notifications.create({
         type: "basic",
-        iconUrl: "icons/icon128.png",
+        iconUrl: "Icons/icon_128.png",
         title: eventId ? "Event Updated" : "Event Scheduled",
         message: startTimeVal ? `Scheduled for ${startTimeVal} (IST)` : `Scheduled as All Day Event`,
         priority: 2
