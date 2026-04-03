@@ -1514,7 +1514,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   const saveSettingsBtn = document.getElementById("saveSettings");
-  if (saveSettingsBtn) {
+  if (false && saveSettingsBtn) {
     saveSettingsBtn.onclick = async () => {
       const key = apiKeyInput.value.trim();
       

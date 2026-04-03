@@ -1,9 +1,7 @@
 // background.js
-// MV3-safe background service worker
-// Gemini Proxy + Google Calendar Handler
+// MV3 service worker for the shared Gemini proxy, Google Calendar, and side panel state.
 // ⚠️ TEMPORARY: hard-coded API keys (internal/demo use only)
 
-const GEMINI_API_KEY = "apikey";
 const BACKEND_BASE = "https://webmailextensionugac-260151192882.asia-south1.run.app";
 const sidePanelStateByTab = new Map();
 
@@ -66,13 +64,12 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 /* -------------------- Auth Locking State -------------------- */
-let isAuthPending = false; // The Gatekeeper lock
-let cachedToken = null;    // Temporary storage for the hour-long session
+let isAuthPending = false;
+let cachedToken = null;
 
 /* -------------------- Message Router -------------------- */
 
 chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
-  // NEW: Content Script trigger to bypass gesture restriction
   if (req.type === "OPEN_SIDEBAR" && sender.tab) {
     const state = getSidePanelState(sender.tab.id);
     if (state.autoOpened || state.manuallyClosed) {
@@ -237,13 +234,12 @@ async function handleGeminiProxy(req, sendResponse) {
 
     } catch (err) {
       console.error("[DEBUG] Proxy Error:", err);
-      sendResponse({ ok: false, error: "Network error. Check if Django is running or your internet connection." });
+      sendResponse({ ok: false, error: "Network error. Please check your connection and try again." });
     }
   });
 }
 /* -------------------- Google Calendar Logic -------------------- */
 
-// UPDATED: Now supports locking mechanism to prevent multiple login popups
 async function handleCalendarFlow(eventData, cardId, eventId = null, forceSelect = false) {
   // 1. Check local cache or storage
   const data = await chrome.storage.local.get(['sessionToken']);
@@ -254,7 +250,7 @@ async function handleCalendarFlow(eventData, cardId, eventId = null, forceSelect
     return;
   }
 
-  // 2. QUEUEING LOGIC: If a request is already fetching a token, wait for it
+  // If auth is already in progress, wait for the existing flow to finish.
   if (isAuthPending) {
     console.log("Auth already in progress. Queueing request for:", cardId);
     const checkInterval = setInterval(() => {
