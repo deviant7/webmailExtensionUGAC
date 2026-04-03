@@ -98,7 +98,9 @@ async function handleGeminiProxy(req, sendResponse) {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
-            "Accept": "application/json"
+            "Accept": "application/json",
+            "X-Extension-Id": chrome.runtime.id,
+            "X-Client-Feature": "iitb-mail-extension"
           },
           body: JSON.stringify({
             model: req.model || data.selectedModel || 'gemini-2.5-flash',

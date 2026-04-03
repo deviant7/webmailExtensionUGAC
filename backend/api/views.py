@@ -11,6 +11,7 @@ from html.parser import HTMLParser
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -354,6 +355,125 @@ def resolve_proxy_request(data):
     return model, payload
 
 
+def build_secure_imap_ssl_context():
+    """Use the platform trust store and hostname verification for IMAP TLS."""
+    return ssl.create_default_context()
+
+
+def get_client_ip(request):
+    forwarded_for = (request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return (request.META.get("REMOTE_ADDR") or "unknown").strip() or "unknown"
+
+
+def is_allowed_extension_request(request):
+    allowed_ids = getattr(settings, "ALLOWED_EXTENSION_IDS", []) or []
+    if not allowed_ids:
+        return True
+
+    header_extension_id = (request.headers.get("X-Extension-Id") or "").strip()
+    origin = (request.headers.get("Origin") or "").strip()
+    allowed_origins = {f"chrome-extension://{extension_id}" for extension_id in allowed_ids}
+    return header_extension_id in allowed_ids or origin in allowed_origins
+
+
+def is_gemini_proxy_rate_limited(request):
+    limit = max(int(getattr(settings, "GEMINI_PROXY_MAX_REQUESTS_PER_MINUTE", 60)), 1)
+    window_seconds = max(
+        int(getattr(settings, "GEMINI_PROXY_RATE_LIMIT_WINDOW_SECONDS", 60)),
+        1,
+    )
+    client_ip = get_client_ip(request)
+    cache_key = f"gemini-proxy-rate:{client_ip}"
+
+    if cache.add(cache_key, 1, timeout=window_seconds):
+        return False
+
+    try:
+        current_count = cache.incr(cache_key)
+    except ValueError:
+        cache.set(cache_key, 1, timeout=window_seconds)
+        return False
+
+    return current_count > limit
+
+
+def sanitize_proxy_payload(payload):
+    if not isinstance(payload, dict):
+        return None, "Invalid payload", 400
+
+    contents = payload.get("contents")
+    if not isinstance(contents, list) or not contents:
+        return None, "Payload must include contents", 400
+
+    max_total_chars = max(int(getattr(settings, "GEMINI_PROXY_MAX_TEXT_CHARS", 25000)), 1)
+    remaining_chars = max_total_chars
+    sanitized_contents = []
+
+    for content in contents[:6]:
+        if not isinstance(content, dict):
+            continue
+
+        role = str(content.get("role") or "user").strip() or "user"
+        raw_parts = content.get("parts")
+        if not isinstance(raw_parts, list):
+            continue
+
+        sanitized_parts = []
+        for part in raw_parts[:8]:
+            if not isinstance(part, dict):
+                continue
+
+            text = part.get("text")
+            if not isinstance(text, str):
+                continue
+
+            cleaned_text = text.strip()
+            if not cleaned_text:
+                continue
+
+            if remaining_chars <= 0:
+                break
+
+            if len(cleaned_text) > remaining_chars:
+                cleaned_text = cleaned_text[:remaining_chars]
+
+            sanitized_parts.append({"text": cleaned_text})
+            remaining_chars -= len(cleaned_text)
+
+        if sanitized_parts:
+            sanitized_contents.append({"role": role, "parts": sanitized_parts})
+
+        if remaining_chars <= 0:
+            break
+
+    if not sanitized_contents:
+        return None, "Payload does not contain supported text parts", 400
+
+    sanitized_payload = {"contents": sanitized_contents}
+
+    system_instruction = payload.get("systemInstruction")
+    if isinstance(system_instruction, dict):
+        sanitized_instruction, _, _ = sanitize_proxy_payload({"contents": [system_instruction]})
+        if sanitized_instruction and sanitized_instruction.get("contents"):
+            sanitized_payload["systemInstruction"] = sanitized_instruction["contents"][0]
+
+    requested_generation_config = payload.get("generationConfig")
+    requested_max_tokens = None
+    if isinstance(requested_generation_config, dict):
+        candidate_tokens = requested_generation_config.get("maxOutputTokens")
+        if isinstance(candidate_tokens, int):
+            requested_max_tokens = candidate_tokens
+
+    max_output_tokens = max(int(getattr(settings, "GEMINI_PROXY_MAX_OUTPUT_TOKENS", 1536)), 256)
+    sanitized_payload["generationConfig"] = {
+        "maxOutputTokens": min(requested_max_tokens or max_output_tokens, max_output_tokens)
+    }
+
+    return sanitized_payload, None, 200
+
+
 def fallback_overview(stats, summary_date):
     return (
         f"{stats['total']} inbox emails arrived on {summary_date.isoformat()}: {stats['unread']} unread and "
@@ -461,16 +581,32 @@ def gemini_proxy(request):
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
     try:
+        max_body_bytes = max(
+            int(getattr(settings, "GEMINI_PROXY_MAX_REQUEST_BODY_BYTES", 50000)),
+            1024,
+        )
+        if len(request.body or b"") > max_body_bytes:
+            return JsonResponse({"error": "Request body too large"}, status=413)
+
         if not request.body:
             return JsonResponse({"error": "Empty request body"}, status=400)
 
+        if not is_allowed_extension_request(request):
+            return JsonResponse({"error": "Unauthorized extension client"}, status=403)
+
+        if is_gemini_proxy_rate_limited(request):
+            return JsonResponse({"error": "Rate limit exceeded. Please try again shortly."}, status=429)
+
         data = json.loads(request.body)
         model, payload = resolve_proxy_request(data)
+        sanitized_payload, payload_error, payload_status = sanitize_proxy_payload(payload)
+        if payload_error:
+            return JsonResponse({"error": payload_error}, status=payload_status)
 
         api_key = getattr(settings, "GEMINI_API_KEY", None)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
 
-        response = requests.post(url, json=payload, timeout=60)
+        response = requests.post(url, json=sanitized_payload, timeout=60)
 
         if response.status_code != 200:
             return JsonResponse(
@@ -528,10 +664,7 @@ def daily_summary_api(request):
                 status=401,
             )
 
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        context.set_ciphers("DEFAULT")
+        context = build_secure_imap_ssl_context()
 
         mail = imaplib.IMAP4_SSL(
             host="imap.iitb.ac.in",

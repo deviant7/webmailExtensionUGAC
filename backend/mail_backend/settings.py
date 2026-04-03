@@ -21,7 +21,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-w#w^)=59xntti+#_vv2_n&$*qp+d-(!n5q$kii5wb%fbn^y6ux"
+SECRET_KEY = os.environ.get(
+    "SECRET_KEY",
+    "django-insecure-w#w^)=59xntti+#_vv2_n&$*qp+d-(!n5q$kii5wb%fbn^y6ux",
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 # Make DEBUG configurable via env var; default to False for safety in Cloud Run
@@ -54,8 +57,36 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-CORS_ALLOW_ALL_ORIGINS = True
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_PROXY_MAX_REQUESTS_PER_MINUTE = int(
+    os.environ.get("GEMINI_PROXY_MAX_REQUESTS_PER_MINUTE", "300")
+)
+GEMINI_PROXY_RATE_LIMIT_WINDOW_SECONDS = int(
+    os.environ.get("GEMINI_PROXY_RATE_LIMIT_WINDOW_SECONDS", "60")
+)
+GEMINI_PROXY_MAX_REQUEST_BODY_BYTES = int(
+    os.environ.get("GEMINI_PROXY_MAX_REQUEST_BODY_BYTES", "200000")
+)
+GEMINI_PROXY_MAX_TEXT_CHARS = int(
+    os.environ.get("GEMINI_PROXY_MAX_TEXT_CHARS", "120000")
+)
+GEMINI_PROXY_MAX_OUTPUT_TOKENS = int(
+    os.environ.get("GEMINI_PROXY_MAX_OUTPUT_TOKENS", "4096")
+)
+DEFAULT_CHROME_EXTENSION_ID = "ignpnhkdhhneglgihfgppmjdiibjphka"
+ALLOWED_EXTENSION_IDS = [
+    item.strip()
+    for item in os.environ.get(
+        "ALLOWED_EXTENSION_IDS",
+        DEFAULT_CHROME_EXTENSION_ID,
+    ).split(",")
+    if item.strip()
+]
+CORS_ALLOWED_ORIGINS = [
+    f"chrome-extension://{extension_id}"
+    for extension_id in ALLOWED_EXTENSION_IDS
+]
+CORS_ALLOW_ALL_ORIGINS = not CORS_ALLOWED_ORIGINS
 
 ROOT_URLCONF = "mail_backend.urls"
 

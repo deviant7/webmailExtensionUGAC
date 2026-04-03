@@ -1,18 +1,25 @@
 from datetime import date
 from email.message import EmailMessage
 
+import ssl
+from django.core.cache import cache
 from django.http import QueryDict
-from django.test import SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase
+from django.test.utils import override_settings
 
 from .views import (
+    build_secure_imap_ssl_context,
     build_email_record,
     build_model_input,
     extract_best_body,
     extract_json_object,
     fallback_overview,
     get_safe_fetch_query,
+    is_allowed_extension_request,
+    is_gemini_proxy_rate_limited,
     parse_requested_summary_date,
     resolve_proxy_request,
+    sanitize_proxy_payload,
 )
 
 
@@ -126,6 +133,12 @@ class DailySummaryHelpersTests(SimpleTestCase):
     def test_get_safe_fetch_query_uses_body_peek(self):
         self.assertEqual(get_safe_fetch_query(), "(BODY.PEEK[])")
 
+    def test_build_secure_imap_ssl_context_verifies_certificates(self):
+        context = build_secure_imap_ssl_context()
+
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+
     def test_resolve_proxy_request_uses_supported_model(self):
         model, payload = resolve_proxy_request(
             {
@@ -147,3 +160,74 @@ class DailySummaryHelpersTests(SimpleTestCase):
 
         self.assertEqual(model, "gemini-2.5-flash")
         self.assertEqual(payload["contents"][0]["parts"][0]["text"], "Hello")
+
+    @override_settings(GEMINI_PROXY_MAX_TEXT_CHARS=10, GEMINI_PROXY_MAX_OUTPUT_TOKENS=512)
+    def test_sanitize_proxy_payload_trims_text_and_caps_output_tokens(self):
+        payload, error, status = sanitize_proxy_payload(
+            {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {"text": "123456789012345"},
+                            {"inline_data": {"mime_type": "image/png"}},
+                        ],
+                    }
+                ],
+                "generationConfig": {"maxOutputTokens": 9999},
+            }
+        )
+
+        self.assertIsNone(error)
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["contents"][0]["parts"][0]["text"], "1234567890")
+        self.assertEqual(payload["generationConfig"]["maxOutputTokens"], 512)
+
+    @override_settings(ALLOWED_EXTENSION_IDS=["test-extension-id"])
+    def test_allowed_extension_request_accepts_matching_extension_id(self):
+        request = RequestFactory().post(
+            "/api/gemini-proxy/",
+            data="{}",
+            content_type="application/json",
+            HTTP_X_EXTENSION_ID="test-extension-id",
+        )
+
+        self.assertTrue(is_allowed_extension_request(request))
+
+    @override_settings(ALLOWED_EXTENSION_IDS=["test-extension-id"])
+    def test_allowed_extension_request_rejects_unknown_extension(self):
+        request = RequestFactory().post(
+            "/api/gemini-proxy/",
+            data="{}",
+            content_type="application/json",
+            HTTP_X_EXTENSION_ID="other-extension-id",
+        )
+
+        self.assertFalse(is_allowed_extension_request(request))
+
+    @override_settings(ALLOWED_EXTENSION_IDS=["test-extension-id"])
+    def test_allowed_extension_request_accepts_matching_origin(self):
+        request = RequestFactory().post(
+            "/api/gemini-proxy/",
+            data="{}",
+            content_type="application/json",
+            HTTP_ORIGIN="chrome-extension://test-extension-id",
+        )
+
+        self.assertTrue(is_allowed_extension_request(request))
+
+    @override_settings(
+        GEMINI_PROXY_MAX_REQUESTS_PER_MINUTE=1,
+        GEMINI_PROXY_RATE_LIMIT_WINDOW_SECONDS=60,
+    )
+    def test_gemini_proxy_rate_limit_blocks_second_request_from_same_ip(self):
+        cache.clear()
+        request = RequestFactory().post(
+            "/api/gemini-proxy/",
+            data="{}",
+            content_type="application/json",
+            REMOTE_ADDR="203.0.113.10",
+        )
+
+        self.assertFalse(is_gemini_proxy_rate_limited(request))
+        self.assertTrue(is_gemini_proxy_rate_limited(request))
