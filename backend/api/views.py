@@ -355,9 +355,62 @@ def resolve_proxy_request(data):
     return model, payload
 
 
-def build_secure_imap_ssl_context():
-    """Use the platform trust store and hostname verification for IMAP TLS."""
-    return ssl.create_default_context()
+def build_secure_imap_ssl_context(compatibility_mode=False):
+    """Use verified TLS for IMAP, with an optional legacy-compatible fallback."""
+    context = ssl.create_default_context()
+
+    if compatibility_mode:
+        # Some legacy IMAP servers fail modern handshakes unless the OpenSSL
+        # security level and minimum TLS version are relaxed. Certificate
+        # verification stays enabled.
+        try:
+            context.set_ciphers("DEFAULT:@SECLEVEL=1")
+        except ssl.SSLError:
+            pass
+
+        tls_version = getattr(ssl, "TLSVersion", None)
+        if tls_version is not None and hasattr(tls_version, "TLSv1"):
+            try:
+                context.minimum_version = tls_version.TLSv1
+            except ValueError:
+                pass
+
+    return context
+
+
+def should_retry_imap_with_compatibility(exc):
+    message = str(exc).lower()
+    retry_markers = (
+        "handshake failure",
+        "no shared cipher",
+        "wrong version number",
+        "version too low",
+        "tlsv1 alert protocol version",
+    )
+    return any(marker in message for marker in retry_markers)
+
+
+def connect_to_iitb_imap():
+    strict_context = build_secure_imap_ssl_context()
+
+    try:
+        return imaplib.IMAP4_SSL(
+            host="imap.iitb.ac.in",
+            port=993,
+            ssl_context=strict_context,
+        )
+    except ssl.SSLCertVerificationError:
+        raise
+    except ssl.SSLError as exc:
+        if not should_retry_imap_with_compatibility(exc):
+            raise
+
+        compatibility_context = build_secure_imap_ssl_context(compatibility_mode=True)
+        return imaplib.IMAP4_SSL(
+            host="imap.iitb.ac.in",
+            port=993,
+            ssl_context=compatibility_context,
+        )
 
 
 def get_client_ip(request):
@@ -664,13 +717,7 @@ def daily_summary_api(request):
                 status=401,
             )
 
-        context = build_secure_imap_ssl_context()
-
-        mail = imaplib.IMAP4_SSL(
-            host="imap.iitb.ac.in",
-            port=993,
-            ssl_context=context,
-        )
+        mail = connect_to_iitb_imap()
 
         mail.login(user, password)
         mail.select("inbox", readonly=True)
@@ -753,6 +800,25 @@ def daily_summary_api(request):
             }
         )
 
+    except ssl.SSLCertVerificationError as exc:
+        return JsonResponse(
+            {
+                "status": "error",
+                "message": (
+                    "Secure connection to IITB IMAP failed certificate verification. "
+                    f"Details: {exc}"
+                ),
+            },
+            status=502,
+        )
+    except ssl.SSLError as exc:
+        return JsonResponse(
+            {
+                "status": "error",
+                "message": f"Secure IMAP connection failed: {exc}",
+            },
+            status=502,
+        )
     except Exception as exc:
         return JsonResponse(
             {

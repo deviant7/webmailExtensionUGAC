@@ -20,6 +20,7 @@ from .views import (
     parse_requested_summary_date,
     resolve_proxy_request,
     sanitize_proxy_payload,
+    should_retry_imap_with_compatibility,
 )
 
 
@@ -138,6 +139,22 @@ class DailySummaryHelpersTests(SimpleTestCase):
 
         self.assertTrue(context.check_hostname)
         self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+
+    def test_build_secure_imap_ssl_context_compatibility_mode_keeps_verification(self):
+        context = build_secure_imap_ssl_context(compatibility_mode=True)
+
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+
+    def test_should_retry_imap_with_compatibility_for_handshake_failure(self):
+        exc = ssl.SSLError("[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake failure")
+
+        self.assertTrue(should_retry_imap_with_compatibility(exc))
+
+    def test_should_not_retry_imap_with_compatibility_for_cert_error(self):
+        exc = ssl.SSLCertVerificationError("certificate verify failed")
+
+        self.assertFalse(should_retry_imap_with_compatibility(exc))
 
     def test_resolve_proxy_request_uses_supported_model(self):
         model, payload = resolve_proxy_request(

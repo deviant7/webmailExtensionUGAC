@@ -575,11 +575,14 @@ document.getElementById('getDailySummaryBtn').addEventListener('click', async ()
             }
         });
 
-        if (!response.ok) {
-            throw new Error("Server responded with " + response.status);
-        }
-
         const data = await response.json();
+
+        if (!response.ok) {
+            statusEl.textContent = `Error: ${data.message || data.error || `Server responded with ${response.status}`}`;
+            statusEl.style.color = "crimson";
+            resultEl.style.display = "none";
+            return;
+        }
 
         if (data.status === "success") {
             const processedTotal = data.stats?.processed_total ?? data.stats?.total ?? 0;
@@ -610,7 +613,7 @@ document.getElementById('getDailySummaryBtn').addEventListener('click', async ()
         }
 
     } catch (err) {
-        statusEl.textContent = `Frontend or network error while loading ${formatSummaryDate(selectedDate)}. Check console.`;
+        statusEl.textContent = `Network error while loading ${formatSummaryDate(selectedDate)}. Check console.`;
         statusEl.style.color = "crimson";
         console.error("Daily Summary Error:", err);
     } finally {
