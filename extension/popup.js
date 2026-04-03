@@ -866,10 +866,25 @@ async function getOpenedMail(cb) {
     showMessage("No active tab", "summary", true);
     return;
   }
-  chrome.scripting.executeScript(
-    { target: { tabId: tab.id }, files: ["content.js"] },
-    () => chrome.tabs.sendMessage(tab.id, { type: "GET_OPENED_MAIL" }, cb)
-  );
+
+  chrome.tabs.sendMessage(tab.id, { type: "GET_OPENED_MAIL" }, (response) => {
+    if (!chrome.runtime.lastError) {
+      cb(response);
+      return;
+    }
+
+    chrome.scripting.executeScript(
+      { target: { tabId: tab.id }, files: ["content.js"] },
+      () => {
+        if (chrome.runtime.lastError) {
+          showMessage("Could not access the current mail tab", "summary", true);
+          return;
+        }
+
+        chrome.tabs.sendMessage(tab.id, { type: "GET_OPENED_MAIL" }, cb);
+      }
+    );
+  });
 }
 
 /* -------------------- Path A: Combined Action (Summ + Cal) -------------------- */

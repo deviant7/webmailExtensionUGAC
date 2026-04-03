@@ -5,11 +5,65 @@
 
 const GEMINI_API_KEY = "apikey";
 const BACKEND_BASE = "https://webmailextensionugac-260151192882.asia-south1.run.app";
+const sidePanelStateByTab = new Map();
 
 async function buildBackendUrl(path) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${BACKEND_BASE}${normalizedPath}`;
 }
+
+function getSidePanelState(tabId) {
+  return sidePanelStateByTab.get(tabId) || { autoOpened: false, opened: false, manuallyClosed: false };
+}
+
+function setSidePanelState(tabId, nextState) {
+  sidePanelStateByTab.set(tabId, nextState);
+}
+
+function clearSidePanelState(tabId) {
+  sidePanelStateByTab.delete(tabId);
+}
+
+function isWebmailUrl(url = "") {
+  return typeof url === "string" && url.includes("webmail.iitb.ac.in");
+}
+
+function applySidePanelOptions(tabId, enabled) {
+  return chrome.sidePanel.setOptions({
+    tabId,
+    path: "popup.html",
+    enabled,
+  });
+}
+
+function disableDefaultSidePanel() {
+  return chrome.sidePanel.setOptions({
+    enabled: false,
+  });
+}
+
+function markTabState(tabId, updates) {
+  const current = getSidePanelState(tabId);
+  setSidePanelState(tabId, {
+    ...current,
+    ...updates,
+  });
+}
+
+async function syncTabSidePanel(tabId, url = "") {
+  const state = getSidePanelState(tabId);
+  await applySidePanelOptions(tabId, isWebmailUrl(url) && state.opened === true);
+}
+
+disableDefaultSidePanel().catch((error) => console.error(error));
+
+chrome.runtime.onInstalled.addListener(() => {
+  disableDefaultSidePanel().catch((error) => console.error(error));
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  disableDefaultSidePanel().catch((error) => console.error(error));
+});
 
 /* -------------------- Auth Locking State -------------------- */
 let isAuthPending = false; // The Gatekeeper lock
@@ -20,7 +74,22 @@ let cachedToken = null;    // Temporary storage for the hour-long session
 chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   // NEW: Content Script trigger to bypass gesture restriction
   if (req.type === "OPEN_SIDEBAR" && sender.tab) {
-    chrome.sidePanel.open({ tabId: sender.tab.id }).catch(e => console.error(e));
+    const state = getSidePanelState(sender.tab.id);
+    if (state.autoOpened || state.manuallyClosed) {
+      return;
+    }
+
+    markTabState(sender.tab.id, {
+      autoOpened: true,
+      opened: true,
+      manuallyClosed: false,
+    });
+
+    // Keep the open() call directly in this message handler so Chrome still
+    // treats it as a user-gesture-driven action from the originating click.
+    applySidePanelOptions(sender.tab.id, true).catch((e) => console.error(e));
+    chrome.sidePanel.open({ tabId: sender.tab.id })
+      .catch((e) => console.error(e));
     return;
   }
 
@@ -49,20 +118,60 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   // No background proxy required for native browser speech.
 });
 
-// Auto-enable side panel options when entering the tab
+chrome.action.onClicked.addListener((tab) => {
+  if (!tab?.id || !isWebmailUrl(tab.url)) {
+    return;
+  }
+
+  markTabState(tab.id, {
+    opened: true,
+    manuallyClosed: false,
+  });
+
+  applySidePanelOptions(tab.id, true).catch((e) => console.error(e));
+  chrome.sidePanel.open({ tabId: tab.id }).catch((e) => console.error(e));
+});
+
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (tab.url && tab.url.includes("webmail.iitb.ac.in")) {
-    await chrome.sidePanel.setOptions({
-      tabId,
-      path: 'popup.html',
-      enabled: true
-    });
+  if (!tab.url) {
+    return;
+  }
+
+  await syncTabSidePanel(tabId, tab.url);
+});
+
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    await syncTabSidePanel(tabId, tab.url);
+  } catch (error) {
+    console.error(error);
   }
 });
 
-chrome.sidePanel
-  .setPanelBehavior({ openPanelOnActionClick: true })
-  .catch((error) => console.error(error));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  clearSidePanelState(tabId);
+});
+
+if (chrome.sidePanel.onOpened) {
+  chrome.sidePanel.onOpened.addListener((info) => {
+    if (Number.isInteger(info.tabId)) {
+      markTabState(info.tabId, { opened: true });
+    }
+  });
+}
+
+if (chrome.sidePanel.onClosed) {
+  chrome.sidePanel.onClosed.addListener((info) => {
+    if (Number.isInteger(info.tabId)) {
+      markTabState(info.tabId, {
+        opened: false,
+        manuallyClosed: true,
+      });
+      applySidePanelOptions(info.tabId, false).catch((error) => console.error(error));
+    }
+  });
+}
 
 /* -------------------- Gemini Logic -------------------- */
 
