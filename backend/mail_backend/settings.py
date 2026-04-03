@@ -30,7 +30,12 @@ SECRET_KEY = os.environ.get(
 # Make DEBUG configurable via env var; default to False for safety in Cloud Run
 DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = ["*"]
+DEFAULT_ALLOWED_HOSTS = "webmailextensionugac-260151192882.asia-south1.run.app"
+ALLOWED_HOSTS = [
+    item.strip()
+    for item in os.environ.get("ALLOWED_HOSTS", DEFAULT_ALLOWED_HOSTS).split(",")
+    if item.strip()
+]
 
 
 # Application definition

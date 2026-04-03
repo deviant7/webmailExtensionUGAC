@@ -52,6 +52,21 @@ function escapeHtml(s = "") {
   return s.toString().replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+function escapeHtmlAttr(s = "") {
+  return s
+    .toString()
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderSafeInlineMarkdown(text = "") {
+  const escaped = escapeHtml(text);
+  return escaped.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+}
+
 function cleanBullet(text = "") {
   return text.replace(/^\*+\s*/, "").replace(/\*+$/g, "").replace(/\*\**/g, "").trim();
 }
@@ -237,20 +252,20 @@ function renderCalendarResult(data, isManual = false) {
       <div id="${uniqueCardId}" class="calendar-card" style="margin-bottom: 20px; border-left: 3px solid var(--accent-dark);">
         <div class="field-group">
           <label class="field-label">Event Title ${eventsToRender.length > 1 ? (index + 1) : ""}</label>
-          <input type="text" id="edit-title-${index}" class="edit-input" placeholder="e.g. Project Sync" value="${escapeHtml(event.title)}">
+          <input type="text" id="edit-title-${index}" class="edit-input" placeholder="e.g. Project Sync" value="${escapeHtmlAttr(event.title || '')}">
         </div>
         <div class="field-row" style="display: flex; gap: 10px;">
           <div class="field-group" style="flex: 1;">
             <label class="field-label">Date</label>
-            <input type="date" id="edit-date-${index}" class="edit-input" value="${event.date || ''}">
+            <input type="date" id="edit-date-${index}" class="edit-input" value="${escapeHtmlAttr(event.date || '')}">
           </div>
           <div class="field-group" style="flex: 1;">
             <label class="field-label">Start Time (Optional)</label>
-            <input type="time" id="edit-time-${index}" class="edit-input" value="${event.startTime || event.time || ''}">
+            <input type="time" id="edit-time-${index}" class="edit-input" value="${escapeHtmlAttr(event.startTime || event.time || '')}">
           </div>
           <div class="field-group" style="flex: 1;">
             <label class="field-label">End Time (Optional)</label>
-            <input type="time" id="edit-endtime-${index}" class="edit-input" value="${event.endTime || ''}">
+            <input type="time" id="edit-endtime-${index}" class="edit-input" value="${escapeHtmlAttr(event.endTime || '')}">
           </div>
         </div>
         <div class="field-group">
@@ -770,7 +785,6 @@ function renderStructuredSummary(text) {
 
     for (let rawLine of lines) {
         let line = rawLine.trim();
-        line = line.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
         if (line.startsWith("-") || line.startsWith("*")) {
 
             if (!inList) {
@@ -779,7 +793,7 @@ function renderStructuredSummary(text) {
             }
             line = line.replace(/^[-*]\s*/, "");
 
-            html += `<li style="margin-bottom: 4px;">${line}</li>`;
+            html += `<li style="margin-bottom: 4px;">${renderSafeInlineMarkdown(line)}</li>`;
         }
         else {
             if (inList) {
@@ -787,7 +801,7 @@ function renderStructuredSummary(text) {
                 inList = false;
             }
 
-            html += `<div class="daily-structured-heading" style="font-weight: 600; margin-top: 10px;">${line}</div>`;
+            html += `<div class="daily-structured-heading" style="font-weight: 600; margin-top: 10px;">${renderSafeInlineMarkdown(line)}</div>`;
         }
     }
 
