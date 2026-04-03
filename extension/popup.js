@@ -665,7 +665,7 @@ function renderDailySummaryDashboard(data) {
                     ${renderStructuredSummary(read)}
                 </div>
             </div>
-            ${renderDailyEmailSection("Today's Inbox Snapshot", data.recent_emails || [], "No emails arrived today.")}
+            ${renderDailyEmailSection("Inbox Snapshot", data.recent_emails || [], "No emails arrived today.")}
         </div>
     `;
 }
