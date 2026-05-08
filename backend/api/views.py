@@ -716,6 +716,8 @@ def daily_summary_api(request):
                 {"status": "error", "message": "LDAP credentials missing"},
                 status=401,
             )
+        request.META.pop("HTTP_X_LDAP_PASS", None)
+        request.META.pop("HTTP_X_LDAP_USER", None)
 
         mail = connect_to_iitb_imap()
 
